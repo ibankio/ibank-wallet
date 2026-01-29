@@ -1,0 +1,3 @@
+[submodule "vendor/wallet-core"]
+	path = vendor/wallet-core
+	url = https://github.com/ibankio/wallet-core
