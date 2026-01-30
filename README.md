@@ -50,6 +50,14 @@ export WALLET_CORE_INCLUDE_DIR=/path/to/wallet-core/include
 cargo build -p ibank-wallet-crypto
 ```
 
+Required environment variables:
+
+- `WALLET_CORE_INCLUDE_DIR`: path to wallet-core public headers (contains `TrustWalletCore/`).
+- `WALLET_CORE_LIB_DIR`: path to the compiled static library output (contains `libTrustWalletCore.a`).
+
+The Rust bridge links directly against the C++ wallet-core build products. You do **not** need to
+build or open the TrustWalletCore Swift/Xcode workspace for this SDK integration.
+
 If wallet-core is not available locally, disable the feature:
 
 ```bash

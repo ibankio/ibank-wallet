@@ -8,6 +8,7 @@
 struct WalletCoreSigner {
   // Opaque pointer to internal state allocated in ffi.cc
   void* inner = nullptr;
+  ~WalletCoreSigner();
 };
 
 // Constructor / destructor helpers
