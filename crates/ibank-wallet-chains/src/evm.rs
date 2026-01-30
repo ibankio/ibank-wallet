@@ -16,6 +16,22 @@ pub struct AccessListItem {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccessList(pub Vec<AccessListItem>);
 
+impl AccessList {
+    /// Encodes the access list as RLP.
+    pub fn rlp_bytes(&self) -> Vec<u8> {
+        let mut stream = rlp::RlpStream::new_list(self.0.len());
+        for item in &self.0 {
+            stream.begin_list(2);
+            stream.append(&item.address.as_slice());
+            stream.begin_list(item.storage_keys.len());
+            for key in &item.storage_keys {
+                stream.append(&key.as_slice());
+            }
+        }
+        stream.out().to_vec()
+    }
+}
+
 /// Unsigned EVM transaction for EIP-1559 signing.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct EvmUnsignedTx {
@@ -66,6 +82,11 @@ impl EvmUnsignedTx {
     /// Hashes the signing payload with keccak256.
     pub fn signing_payload_hash(&self) -> [u8; 32] {
         keccak256(&self.signing_payload())
+    }
+
+    /// Encodes the access list portion as RLP.
+    pub fn access_list_rlp(&self) -> Vec<u8> {
+        self.access_list.rlp_bytes()
     }
 }
 
@@ -196,10 +217,9 @@ mod tests {
         };
 
         let payload = tx.signing_payload();
-        let expected = hex::decode(
-            "02df018001028252089400000000000000000000000000000000000000000180c0",
-        )
-        .expect("valid hex");
+        let expected =
+            hex::decode("02df018001028252089400000000000000000000000000000000000000000180c0")
+                .expect("valid hex");
         assert_eq!(payload, expected);
     }
 }

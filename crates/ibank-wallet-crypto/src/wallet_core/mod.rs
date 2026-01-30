@@ -13,6 +13,8 @@ pub struct WalletCoreSigner {
     inner: cxx::UniquePtr<ffi::WalletCoreSigner>,
 }
 
+const DEFAULT_EVM_DERIVATION_PATH: &str = "m/44'/60'/0'/0/0";
+
 impl WalletCoreSigner {
     /// Creates a signer from a mnemonic and optional passphrase.
     pub fn from_mnemonic(mnemonic: &str, passphrase: &str) -> Result<Self> {
@@ -37,6 +39,12 @@ impl WalletCoreSigner {
         out.copy_from_slice(&address);
         Ok(out)
     }
+
+    /// Returns the EVM address for the given path or the default derivation path.
+    pub fn evm_address(&self, derivation_path: Option<&str>) -> Result<[u8; 20]> {
+        let path = derivation_path.unwrap_or(DEFAULT_EVM_DERIVATION_PATH);
+        self.derive_evm_address(path)
+    }
 }
 
 impl Signer for WalletCoreSigner {
@@ -47,14 +55,7 @@ impl Signer for WalletCoreSigner {
         let max_fee_per_gas = u128_to_bytes(tx.max_fee_per_gas);
         let gas_limit = u128_to_bytes(tx.gas_limit);
         let value = u128_to_bytes(tx.value);
-        let access_list = tx.access_list.0.iter().flat_map(|item| {
-            let mut entry = Vec::new();
-            entry.extend_from_slice(&item.address);
-            for key in &item.storage_keys {
-                entry.extend_from_slice(key);
-            }
-            entry
-        }).collect::<Vec<u8>>();
+        let access_list = tx.access_list_rlp();
 
         let signed = ffi::sign_eip1559(
             &self.inner,
