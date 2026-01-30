@@ -1,0 +1,19 @@
+[package]
+name = "ibank-wallet-crypto"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[features]
+default = ["wallet-core"]
+wallet-core = ["cxx", "cc"]
+
+[dependencies]
+ibank-wallet-core = { path = "../ibank-wallet-core" }
+ibank-wallet-chains = { path = "../ibank-wallet-chains" }
+
+cxx = { version = "1.0", optional = true }
+
+[build-dependencies]
+cxx-build = "1.0"
+cc = { version = "1.0", optional = true }

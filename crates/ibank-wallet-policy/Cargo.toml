@@ -1,0 +1,9 @@
+[package]
+name = "ibank-wallet-policy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+ibank-wallet-core = { path = "../ibank-wallet-core" }
+ibank-wallet-chains = { path = "../ibank-wallet-chains" }

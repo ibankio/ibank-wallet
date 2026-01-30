@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/ibank-wallet-core",
+  "crates/ibank-wallet-crypto",
+  "crates/ibank-wallet-chains",
+  "crates/ibank-wallet-policy",
+  "crates/ibank-wallet-runtime",
+]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
