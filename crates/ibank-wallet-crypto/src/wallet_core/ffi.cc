@@ -3,19 +3,22 @@
 #include <string>
 #include <vector>
 
-#include <TrustWalletCore/AnySigner.h>
-#include <TrustWalletCore/Coin.h>
-#include <TrustWalletCore/DerivationPath.h>
-#include <TrustWalletCore/HDWallet.h>
-#include <TrustWalletCore/PrivateKey.h>
-#include <TrustWalletCore/Ethereum/Address.h>
-#include <TrustWalletCore/Ethereum/Proto.h>
+#include <TrustWalletCore/TWAnySigner.h>
+#include <TrustWalletCore/TWCoinType.h>
+#include <TrustWalletCore/TWData.h>
+#include <TrustWalletCore/TWDerivationPath.h>
+#include <TrustWalletCore/TWEthereum.h>
+#include <TrustWalletCore/TWEthereumProto.h>
+#include <TrustWalletCore/TWHDWallet.h>
+#include <TrustWalletCore/TWPrivateKey.h>
+#include <TrustWalletCore/TWPublicKey.h>
+#include <TrustWalletCore/TWString.h>
 
 namespace {
 constexpr const char* kDefaultEvmDerivationPath = "m/44'/60'/0'/0/0";
 
 struct SignerState {
-  std::unique_ptr<TW::HDWallet> wallet;
+  TWHDWallet* wallet = nullptr;
 };
 
 std::vector<uint8_t> to_big_endian(uint64_t value) {
@@ -34,21 +37,47 @@ std::vector<uint8_t> to_big_endian(uint64_t value) {
   return out;
 }
 
-std::string to_bytes_string(const rust::Vec<uint8_t>& data) {
-  return std::string(reinterpret_cast<const char*>(data.data()), data.size());
-}
-
-std::string to_bytes_string(const std::vector<uint8_t>& data) {
-  return std::string(reinterpret_cast<const char*>(data.data()), data.size());
-}
-
-rust::Vec<uint8_t> to_rust_vec(const TW::Data& data) {
-  rust::Vec<uint8_t> out;
-  out.reserve(data.size());
+std::string to_hex_string(const rust::Vec<uint8_t>& data) {
+  static constexpr char kHexChars[] = "0123456789abcdef";
+  std::string out;
+  out.reserve(data.size() * 2 + 2);
+  out.push_back('0');
+  out.push_back('x');
   for (const auto byte : data) {
-    out.push_back(byte);
+    out.push_back(kHexChars[(byte >> 4) & 0x0f]);
+    out.push_back(kHexChars[byte & 0x0f]);
   }
   return out;
+}
+
+TWData* to_tw_data(const std::vector<uint8_t>& data) {
+  return TWDataCreateWithBytes(data.data(), data.size());
+}
+
+TWData* to_tw_data(const rust::Vec<uint8_t>& data) {
+  return TWDataCreateWithBytes(data.data(), data.size());
+}
+
+rust::Vec<uint8_t> to_rust_vec(const TWData* data) {
+  rust::Vec<uint8_t> out;
+  if (!data) {
+    return out;
+  }
+  const auto* bytes = TWDataBytes(data);
+  const auto size = TWDataSize(data);
+  out.reserve(size);
+  for (size_t i = 0; i < size; ++i) {
+    out.push_back(bytes[i]);
+  }
+  return out;
+}
+
+TWString* to_tw_string(const rust::Str& value) {
+  return TWStringCreateWithUTF8Bytes(std::string(value.data(), value.size()).c_str());
+}
+
+TWString* to_tw_string(const std::string& value) {
+  return TWStringCreateWithUTF8Bytes(value.c_str());
 }
 
 SignerState* get_state(const WalletCoreSigner& signer) {
@@ -58,6 +87,10 @@ SignerState* get_state(const WalletCoreSigner& signer) {
 
 WalletCoreSigner::~WalletCoreSigner() {
   auto* state = static_cast<SignerState*>(inner);
+  if (state && state->wallet) {
+    TWHDWalletDelete(state->wallet);
+    state->wallet = nullptr;
+  }
   delete state;
   inner = nullptr;
 }
@@ -66,10 +99,17 @@ std::unique_ptr<WalletCoreSigner> new_signer(const rust::Str& mnemonic,
                                              const rust::Str& passphrase) {
   auto signer = std::make_unique<WalletCoreSigner>();
   auto state = std::make_unique<SignerState>();
-  state->wallet = std::make_unique<TW::HDWallet>(
-      std::string(mnemonic.data(), mnemonic.size()),
-      std::string(passphrase.data(), passphrase.size()));
-  if (!state->wallet || !state->wallet->isValid()) {
+  TWString* mnemonic_str = to_tw_string(mnemonic);
+  TWString* passphrase_str = to_tw_string(passphrase);
+  if (!TWHDWalletIsValid(mnemonic_str)) {
+    TWStringDelete(mnemonic_str);
+    TWStringDelete(passphrase_str);
+    return nullptr;
+  }
+  state->wallet = TWHDWalletCreateWithMnemonic(mnemonic_str, passphrase_str);
+  TWStringDelete(mnemonic_str);
+  TWStringDelete(passphrase_str);
+  if (!state->wallet) {
     return nullptr;
   }
   signer->inner = state.release();
@@ -82,11 +122,32 @@ rust::Vec<std::uint8_t> derive_evm_address(const WalletCoreSigner& signer,
   if (!state || !state->wallet) {
     return {};
   }
-  TW::DerivationPath path(std::string(derivation_path.data(), derivation_path.size()));
-  const auto key = state->wallet->getKey(path);
-  const auto public_key = key.getPublicKey(TWPublicKeyTypeSECP256k1);
-  const TW::Ethereum::Address address(public_key);
-  return to_rust_vec(address.bytes);
+  TWString* path_str = to_tw_string(derivation_path);
+  TWDerivationPath* path = TWDerivationPathCreate(path_str);
+  TWStringDelete(path_str);
+  if (!path) {
+    return {};
+  }
+  TWPrivateKey* private_key = TWHDWalletGetKey(state->wallet, path);
+  TWDerivationPathDelete(path);
+  if (!private_key) {
+    return {};
+  }
+  TWPublicKey* public_key = TWPrivateKeyGetPublicKeySecp256k1(private_key);
+  TWPrivateKeyDelete(private_key);
+  if (!public_key) {
+    return {};
+  }
+  TWEthereumAddress* address = TWEthereumAddressCreateWithPublicKey(public_key);
+  TWPublicKeyDelete(public_key);
+  if (!address) {
+    return {};
+  }
+  TWData* address_data = TWEthereumAddressData(address);
+  TWEthereumAddressDelete(address);
+  auto out = to_rust_vec(address_data);
+  TWDataDelete(address_data);
+  return out;
 }
 
 rust::Vec<std::uint8_t> sign_eip1559(
@@ -105,35 +166,96 @@ rust::Vec<std::uint8_t> sign_eip1559(
     return {};
   }
 
-  TW::DerivationPath path(kDefaultEvmDerivationPath);
-  const auto private_key = state->wallet->getKey(path);
-
-  TW::Ethereum::Proto::SigningInput input;
-  const auto chain_id_bytes = to_big_endian(chain_id);
-  const auto nonce_bytes = to_big_endian(nonce);
-  input.set_chain_id(to_bytes_string(chain_id_bytes));
-  input.set_nonce(to_bytes_string(nonce_bytes));
-  input.set_max_inclusion_fee_per_gas(to_bytes_string(max_priority_fee_per_gas_be));
-  input.set_max_fee_per_gas(to_bytes_string(max_fee_per_gas_be));
-  input.set_gas_limit(to_bytes_string(gas_limit_be));
-  input.set_amount(to_bytes_string(value_be));
-  input.set_payload(to_bytes_string(data));
-  input.set_private_key(private_key.bytes.data(), private_key.bytes.size());
-  input.set_tx_mode(static_cast<TW::Ethereum::Proto::TransactionMode>(1));
-  if (!to20.empty()) {
-    const TW::Ethereum::Address address(TW::Data(to20.begin(), to20.end()));
-    input.set_to_address(address.string());
-  }
-  if (!access_list_rlp.empty()) {
-    input.set_access_list(to_bytes_string(access_list_rlp));
-  }
-
-  const auto serialized = input.SerializeAsString();
-  const TW::Data input_data(serialized.begin(), serialized.end());
-  const auto output_data = TW::AnySigner::sign(input_data, TWCoinTypeEthereum);
-  TW::Ethereum::Proto::SigningOutput output;
-  if (!output.ParseFromArray(output_data.data(), static_cast<int>(output_data.size()))) {
+  TWString* path_str = to_tw_string(kDefaultEvmDerivationPath);
+  TWDerivationPath* path = TWDerivationPathCreate(path_str);
+  TWStringDelete(path_str);
+  if (!path) {
     return {};
   }
-  return to_rust_vec(output.encoded());
+  TWPrivateKey* private_key = TWHDWalletGetKey(state->wallet, path);
+  TWDerivationPathDelete(path);
+  if (!private_key) {
+    return {};
+  }
+  TWData* private_key_data = TWPrivateKeyData(private_key);
+  TWPrivateKeyDelete(private_key);
+  if (!private_key_data) {
+    return {};
+  }
+
+  TW_Ethereum_Proto_SigningInput* input = TW_Ethereum_Proto_SigningInput_create();
+  if (!input) {
+    TWDataDelete(private_key_data);
+    return {};
+  }
+
+  const auto chain_id_bytes = to_big_endian(chain_id);
+  const auto nonce_bytes = to_big_endian(nonce);
+  TWData* chain_id_data = to_tw_data(chain_id_bytes);
+  TWData* nonce_data = to_tw_data(nonce_bytes);
+  TWData* max_priority_fee_data = to_tw_data(max_priority_fee_per_gas_be);
+  TWData* max_fee_data = to_tw_data(max_fee_per_gas_be);
+  TWData* gas_limit_data = to_tw_data(gas_limit_be);
+  TWData* amount_data = to_tw_data(value_be);
+  TWData* payload_data = to_tw_data(data);
+  TWData* access_list_data = to_tw_data(access_list_rlp);
+
+  TW_Ethereum_Proto_SigningInput_set_chain_id(input, chain_id_data);
+  TW_Ethereum_Proto_SigningInput_set_nonce(input, nonce_data);
+  TW_Ethereum_Proto_SigningInput_set_max_inclusion_fee_per_gas(input,
+                                                               max_priority_fee_data);
+  TW_Ethereum_Proto_SigningInput_set_max_fee_per_gas(input, max_fee_data);
+  TW_Ethereum_Proto_SigningInput_set_gas_limit(input, gas_limit_data);
+  TW_Ethereum_Proto_SigningInput_set_amount(input, amount_data);
+  TW_Ethereum_Proto_SigningInput_set_payload(input, payload_data);
+  TW_Ethereum_Proto_SigningInput_set_private_key(input, private_key_data);
+  TW_Ethereum_Proto_SigningInput_set_tx_mode(
+      input, TW_Ethereum_Proto_TransactionMode_Enveloped);
+
+  if (!to20.empty()) {
+    const auto to_address_hex = to_hex_string(to20);
+    TWString* to_address_str = to_tw_string(to_address_hex);
+    TW_Ethereum_Proto_SigningInput_set_to_address(input, to_address_str);
+    TWStringDelete(to_address_str);
+  }
+
+  if (!access_list_rlp.empty()) {
+    TW_Ethereum_Proto_SigningInput_set_access_list(input, access_list_data);
+  }
+
+  TWDataDelete(chain_id_data);
+  TWDataDelete(nonce_data);
+  TWDataDelete(max_priority_fee_data);
+  TWDataDelete(max_fee_data);
+  TWDataDelete(gas_limit_data);
+  TWDataDelete(amount_data);
+  TWDataDelete(payload_data);
+  TWDataDelete(access_list_data);
+
+  TWData* input_data = TW_Ethereum_Proto_SigningInput_serialize(input);
+  TW_Ethereum_Proto_SigningInput_delete(input);
+  if (!input_data) {
+    TWDataDelete(private_key_data);
+    return {};
+  }
+
+  TWData* output_data = TWAnySignerSign(input_data, TWCoinTypeEthereum);
+  TWDataDelete(input_data);
+  TWDataDelete(private_key_data);
+  if (!output_data) {
+    return {};
+  }
+
+  TW_Ethereum_Proto_SigningOutput* output =
+      TW_Ethereum_Proto_SigningOutput_deserialize(output_data);
+  TWDataDelete(output_data);
+  if (!output) {
+    return {};
+  }
+
+  TWData* encoded = TW_Ethereum_Proto_SigningOutput_encoded(output);
+  auto out = to_rust_vec(encoded);
+  TWDataDelete(encoded);
+  TW_Ethereum_Proto_SigningOutput_delete(output);
+  return out;
 }
