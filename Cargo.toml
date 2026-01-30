@@ -8,6 +8,10 @@ members = [
   "crates/ibank-wallet-runtime",
 ]
 
+exclude = [
+  "vendor/wallet-core",
+]
+
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"

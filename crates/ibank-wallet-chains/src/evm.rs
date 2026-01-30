@@ -17,7 +17,7 @@ pub struct AccessListItem {
 pub struct AccessList(pub Vec<AccessListItem>);
 
 /// Unsigned EVM transaction for EIP-1559 signing.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct EvmUnsignedTx {
     /// Chain id for replay protection.
     pub chain_id: u64,
@@ -56,9 +56,10 @@ impl EvmUnsignedTx {
         stream.append(&self.data.as_slice());
         append_access_list(&mut stream, &self.access_list);
 
-        let mut out = Vec::with_capacity(1 + stream.out().len());
+        let rlp_bytes = stream.out(); // moves stream once
+        let mut out = Vec::with_capacity(1 + rlp_bytes.len());
         out.push(0x02);
-        out.extend_from_slice(stream.out().as_ref());
+        out.extend_from_slice(rlp_bytes.as_ref());
         out
     }
 

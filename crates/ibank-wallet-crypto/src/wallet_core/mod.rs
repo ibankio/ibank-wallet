@@ -8,7 +8,7 @@ use crate::Signer;
 mod ffi;
 
 /// Signer implementation backed by Trust Wallet wallet-core.
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct WalletCoreSigner {
     inner: cxx::UniquePtr<ffi::WalletCoreSigner>,
 }

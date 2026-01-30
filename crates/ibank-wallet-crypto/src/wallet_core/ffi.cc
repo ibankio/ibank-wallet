@@ -1,20 +1,14 @@
 #include "ffi.h"
 
-struct WalletCoreSigner {
-  std::string mnemonic;
-  std::string passphrase;
-};
-
-std::unique_ptr<WalletCoreSigner> new_signer(const std::string &mnemonic,
-                                             const std::string &passphrase) {
+std::unique_ptr<WalletCoreSigner> new_signer(const rust::Str &mnemonic,
+                                             const rust::Str &passphrase) {
   auto signer = std::make_unique<WalletCoreSigner>();
-  signer->mnemonic = mnemonic;
-  signer->passphrase = passphrase;
+  signer->inner = nullptr; // later: store TWHDWallet* or your own state struct
   return signer;
 }
 
 std::vector<uint8_t> derive_evm_address(const WalletCoreSigner & /*signer*/,
-                                        const std::string & /*derivation_path*/) {
+                                        const rust::Str & /*derivation_path*/) {
   return std::vector<uint8_t>(20, 0);
 }
 
