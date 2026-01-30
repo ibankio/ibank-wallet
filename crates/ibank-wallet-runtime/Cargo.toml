@@ -1,0 +1,12 @@
+[package]
+name = "ibank-wallet-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+hex = "0.4"
+ibank-wallet-core = { path = "../ibank-wallet-core" }
+ibank-wallet-chains = { path = "../ibank-wallet-chains" }
+ibank-wallet-policy = { path = "../ibank-wallet-policy" }
+ibank-wallet-crypto = { path = "../ibank-wallet-crypto", default-features = false }
