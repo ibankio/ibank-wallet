@@ -121,11 +121,7 @@ std::unique_ptr<WalletCoreSigner> new_signer(const rust::Str& mnemonic,
   auto state = std::make_unique<SignerState>();
   TWString* mnemonic_str = to_tw_string(mnemonic);
   TWString* passphrase_str = to_tw_string(passphrase);
-  if (!TWHDWalletMnemonicIsValid(mnemonic_str)) {
-    TWStringDelete(mnemonic_str);
-    TWStringDelete(passphrase_str);
-    return nullptr;
-  }
+
   state->wallet = TWHDWalletCreateWithMnemonic(mnemonic_str, passphrase_str);
   TWStringDelete(mnemonic_str);
   TWStringDelete(passphrase_str);
