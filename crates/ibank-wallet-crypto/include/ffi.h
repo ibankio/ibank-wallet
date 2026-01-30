@@ -12,10 +12,12 @@ struct WalletCoreSigner {
 };
 
 // Constructor / destructor helpers
-std::unique_ptr<WalletCoreSigner> new_signer(rust::Str mnemonic, rust::Str passphrase);
+std::unique_ptr<WalletCoreSigner> new_signer(const rust::Str& mnemonic,
+                                             const rust::Str& passphrase);
 
 // EVM helpers
-rust::Vec<std::uint8_t> derive_evm_address(const WalletCoreSigner& signer, rust::Str derivation_path);
+rust::Vec<std::uint8_t> derive_evm_address(const WalletCoreSigner& signer,
+                                           const rust::Str& derivation_path);
 
 rust::Vec<std::uint8_t> sign_eip1559(
     const WalletCoreSigner& signer,
