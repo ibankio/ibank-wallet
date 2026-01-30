@@ -4,7 +4,7 @@ use ibank_wallet_chains::EvmUnsignedTx;
 use ibank_wallet_core::{Result, WalletError};
 
 #[cfg(feature = "wallet-core")]
-mod wallet_core;
+pub mod wallet_core;
 
 /// A signer capable of producing signed EVM transactions.
 pub trait Signer {

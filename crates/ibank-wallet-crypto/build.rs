@@ -35,4 +35,15 @@ fn main() {
 
     // You built: libTrustWalletCore.a
     println!("cargo:rustc-link-lib=static=TrustWalletCore");
+
+    // Homebrew protobuf
+    let pb_prefix = "/opt/homebrew/opt/protobuf"; // adjust if your brew prefix differs
+    println!("cargo:rustc-link-search=native={}/lib", pb_prefix);
+    println!("cargo:rustc-link-lib=dylib=protobuf"); // or static=protobuf if you have .a
+    // Sometimes also needed:
+    // println!("cargo:rustc-link-lib=dylib=protoc"); // usually not required at runtime
+
+    // macOS system libs that often accompany protobuf usage:
+    println!("cargo:rustc-link-lib=c++");
+    
 }

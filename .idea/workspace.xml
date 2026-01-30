@@ -23,7 +23,10 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="bc1359e2-acc3-486f-9c90-c85571dc1aa7" name="Changes" comment="" />
+    <list default="true" id="bc1359e2-acc3-486f-9c90-c85571dc1aa7" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/crates/ibank-wallet-crypto/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/crates/ibank-wallet-crypto/src/lib.rs" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -36,9 +39,9 @@
   <component name="MacroExpansionManager">
     <option name="directoryName" value="Aktg52oB" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 0
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 0
+}</component>
   <component name="ProjectId" id="38zYZaQ2zajl9fND2IYsKnBPyhs" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -48,6 +51,7 @@
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.rust.reset.selective.auto.import": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
@@ -90,7 +94,11 @@
       <option name="presentableId" value="Default" />
       <updated>1769803923195</updated>
       <workItem from="1769803924485" duration="79000" />
+      <workItem from="1769806637097" duration="974000" />
     </task>
     <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
   </component>
 </project>
