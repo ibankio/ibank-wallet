@@ -260,16 +260,22 @@ fn ensure_wallet_core_is_self_contained(wallet_core_lib: &Path) {
 
     // Detect a few known missing components that often appear when wallet-core was built
     // without bundling companion static archives (e.g. TrezorCrypto / tx-compiler / zil).
-    let nm_output = std::process::Command::new("nm")
-        .arg("-u")
-        .arg(&lib_path)
-        .output();
+    let nm_output = {
+        let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+        let mut command = std::process::Command::new("nm");
+        if target_os == "macos" {
+            command.arg("-gU");
+        } else {
+            command.args(["-g", "-u"]);
+        }
+        command.arg(&lib_path).output()
+    };
 
     let output = match nm_output {
         Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).to_string(),
         _ => {
             println!(
-                "cargo:warning=Unable to run nm -u to validate TrustWalletCore self-containment. Skipping."
+                "cargo:warning=Unable to run nm to validate TrustWalletCore self-containment. Skipping."
             );
             return;
         }
