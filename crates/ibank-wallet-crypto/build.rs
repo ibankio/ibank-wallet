@@ -5,6 +5,8 @@ const WALLET_CORE_LIB_ENV: &str = "WALLET_CORE_LIB_DIR";
 const PROTOBUF_PREFIX_ENV: &str = "PROTOBUF_PREFIX";
 const PROTOBUF_LIB_ENV: &str = "PROTOBUF_LIB_DIR";
 const FORCE_PROTOBUF_ENV: &str = "IBANK_WALLET_FORCE_PROTOBUF";
+const FORCE_PROTOBUF_STATIC_ENV: &str = "IBANK_WALLET_FORCE_PROTOBUF_STATIC";
+const SKIP_WALLET_CORE_SANITY_ENV: &str = "IBANK_WALLET_SKIP_WALLET_CORE_SANITY";
 const MACOSX_DEPLOYMENT_TARGET_ENV: &str = "MACOSX_DEPLOYMENT_TARGET";
 
 fn main() {
@@ -20,6 +22,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed={}", PROTOBUF_PREFIX_ENV);
     println!("cargo:rerun-if-env-changed={}", PROTOBUF_LIB_ENV);
     println!("cargo:rerun-if-env-changed={}", FORCE_PROTOBUF_ENV);
+    println!("cargo:rerun-if-env-changed={}", FORCE_PROTOBUF_STATIC_ENV);
+    println!("cargo:rerun-if-env-changed={}", SKIP_WALLET_CORE_SANITY_ENV);
     println!("cargo:rerun-if-env-changed={}", MACOSX_DEPLOYMENT_TARGET_ENV);
 
     let wallet_core_include = find_wallet_core_include_dir();
@@ -28,17 +32,14 @@ fn main() {
     let mut build = cxx_build::bridge("src/wallet_core/ffi.rs");
     build.file("src/wallet_core/ffi.cc");
     build.flag_if_supported("-std=c++17");
-    if let (Ok(target), Ok(os)) = (
-        std::env::var(MACOSX_DEPLOYMENT_TARGET_ENV),
-        std::env::var("CARGO_CFG_TARGET_OS"),
-    ) {
-        if os == "macos" {
-            build.flag_if_supported(&format!("-mmacosx-version-min={}", target));
-            println!(
-                "cargo:rustc-link-arg=-Wl,-platform_version,macos,{0},{0}",
-                target
-            );
-        }
+    if std::env::var("CARGO_CFG_TARGET_OS").ok().as_deref() == Some("macos") {
+        let target = std::env::var(MACOSX_DEPLOYMENT_TARGET_ENV).unwrap_or_else(|_| "11.0".to_string());
+        build.flag_if_supported(&format!("-mmacosx-version-min={}", target));
+        // Ensure the final link step uses the same deployment target.
+        println!(
+            "cargo:rustc-link-arg=-Wl,-platform_version,macos,{0},{0}",
+            target
+        );
     }
 
     build.include(wallet_core_include);
@@ -48,6 +49,19 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}", wallet_core_lib.display());
     println!("cargo:rustc-link-lib=static=TrustWalletCore");
+
+    // Sanity-check: TrustWalletCore must not reference missing companion archives.
+    // If the wallet-core build folder only contains libTrustWalletCore.a + libprotobuf.a,
+    // but TrustWalletCore has undefined references to crypto/tx-compiler symbols, the
+    // final binary link will fail (often only when building examples/bins).
+    if std::env::var(SKIP_WALLET_CORE_SANITY_ENV).is_ok() {
+        println!(
+            "cargo:warning={SKIP_WALLET_CORE_SANITY_ENV} is set; skipping TrustWalletCore self-containment checks. \n\
+           If you hit undefined symbols at link time, rebuild wallet-core to bundle companion libs or link the missing .a archives."
+        );
+    } else {
+        ensure_wallet_core_is_self_contained(&wallet_core_lib);
+    }
 
     if let Some((protobuf_lib_dir, protobuf_kind)) =
         resolve_protobuf_lib(&wallet_core_lib)
@@ -97,7 +111,7 @@ fn find_wallet_core_lib_dir() -> PathBuf {
         );
     }
 
-    let fallback = PathBuf::from("vendor/wallet-core/lib");
+    let fallback = PathBuf::from("vendor/wallet-core/build");
     if fallback.is_dir() {
         println!(
             "cargo:warning=Using wallet-core libs from {} (set {WALLET_CORE_LIB_ENV} to override).",
@@ -112,9 +126,28 @@ fn find_wallet_core_lib_dir() -> PathBuf {
 }
 
 fn resolve_protobuf_lib(wallet_core_lib: &Path) -> Option<(PathBuf, &'static str)> {
+    // If the wallet-core build provides a bundled static protobuf, prefer it.
+    // This avoids mixing Homebrew protobuf with wallet-core's compiled objects.
+    if std::env::var(FORCE_PROTOBUF_STATIC_ENV).is_ok() {
+        let bundled = wallet_core_lib.join("libprotobuf.a");
+        if bundled.is_file() {
+            return Some((wallet_core_lib.to_path_buf(), "static"));
+        }
+        println!(
+            "cargo:warning={FORCE_PROTOBUF_STATIC_ENV} is set but libprotobuf.a was not found in {}",
+            wallet_core_lib.display()
+        );
+    }
+
     if !wallet_core_needs_protobuf(wallet_core_lib) {
         // TrustWalletCore already bundles protobuf objects; avoid double-linking.
         return None;
+    }
+
+    // If wallet-core ships libprotobuf.a, link it as static.
+    let bundled = wallet_core_lib.join("libprotobuf.a");
+    if bundled.is_file() {
+        return Some((wallet_core_lib.to_path_buf(), "static"));
     }
 
     if std::env::var(FORCE_PROTOBUF_ENV).is_ok() {
@@ -142,13 +175,14 @@ fn wallet_core_needs_protobuf(wallet_core_lib: &Path) -> bool {
         return false;
     }
 
+    // Prefer `nm -u` (undefined symbols) so we can reliably detect external protobuf deps.
     let nm_output = std::process::Command::new("nm")
-        .arg("-gU")
+        .arg("-u")
         .arg(&lib_path)
         .output()
         .or_else(|_| {
             std::process::Command::new("nm")
-                .arg("-g")
+                .arg("-u")
                 .arg(&lib_path)
                 .output()
         });
@@ -216,4 +250,84 @@ fn find_protobuf_dir() -> Option<(PathBuf, &'static str)> {
     }
 
     None
+}
+
+fn ensure_wallet_core_is_self_contained(wallet_core_lib: &Path) {
+    let lib_path = wallet_core_lib.join("libTrustWalletCore.a");
+    if !lib_path.is_file() {
+        return;
+    }
+
+    // Detect a few known missing components that often appear when wallet-core was built
+    // without bundling companion static archives (e.g. TrezorCrypto / tx-compiler / zil).
+    let nm_output = std::process::Command::new("nm")
+        .arg("-u")
+        .arg(&lib_path)
+        .output();
+
+    let output = match nm_output {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).to_string(),
+        _ => {
+            println!(
+                "cargo:warning=Unable to run nm -u to validate TrustWalletCore self-containment. Skipping."
+            );
+            return;
+        }
+    };
+
+    let suspects = [
+        "CURVE25519_NAME",
+        "ED25519_NAME",
+        "ED25519_CARDANO_NAME",
+        "ED25519_BLAKE2B_NANO_NAME",
+        "NIST256P1_NAME",
+        "tw_transaction_compiler_compile",
+        "tw_transaction_compiler_pre_image_hashes",
+        "zil_schnorr_sign",
+    ];
+
+    let mut found = Vec::new();
+    for s in suspects {
+        if output.contains(s) {
+            found.push(s);
+        }
+    }
+
+    if found.is_empty() {
+        return;
+    }
+
+    // If wallet-core only produced TrustWalletCore + protobuf, but has undefined symbols for
+    // these components, the final link will fail. Provide a clear actionable error.
+    let protobuf_a = wallet_core_lib.join("libprotobuf.a");
+    let has_only_two_archives = {
+        let mut count = 0usize;
+        if let Ok(entries) = std::fs::read_dir(wallet_core_lib) {
+            for e in entries.flatten() {
+                if e.path().extension().and_then(|s| s.to_str()) == Some("a") {
+                    count += 1;
+                }
+            }
+        }
+        count <= 2 && protobuf_a.is_file()
+    };
+
+    if has_only_two_archives {
+        panic!(
+            "TrustWalletCore has undefined references to: {:?}. \
+Your wallet-core build directory ({}) appears to only contain libTrustWalletCore.a and libprotobuf.a. \
+This usually means wallet-core was built without bundling companion static libs (crypto/tx-compiler). \
+Rebuild wallet-core so these objects are included in libTrustWalletCore.a or additional .a archives are produced, then link them from build.rs. \
+\
+To bypass this check temporarily (not recommended), set {SKIP_WALLET_CORE_SANITY_ENV}=1.",
+            found,
+            wallet_core_lib.display()
+        );
+    } else {
+        println!(
+            "cargo:warning=TrustWalletCore has undefined references to {:?}. Ensure all required wallet-core companion archives are present in {} and linked.",
+            found,
+            wallet_core_lib.display()
+        );
+    }
 }
