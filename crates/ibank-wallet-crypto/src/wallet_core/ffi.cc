@@ -115,8 +115,8 @@ WalletCoreSigner::~WalletCoreSigner() {
   inner = nullptr;
 }
 
-std::unique_ptr<WalletCoreSigner> new_signer(const rust::Str& mnemonic,
-                                             const rust::Str& passphrase) {
+std::unique_ptr<WalletCoreSigner> new_signer(rust::Str mnemonic,
+                                             rust::Str passphrase) {
   auto signer = std::make_unique<WalletCoreSigner>();
   auto state = std::make_unique<SignerState>();
   TWString* mnemonic_str = to_tw_string(mnemonic);
@@ -133,7 +133,7 @@ std::unique_ptr<WalletCoreSigner> new_signer(const rust::Str& mnemonic,
 }
 
 rust::Vec<std::uint8_t> derive_evm_address(const WalletCoreSigner& signer,
-                                           const rust::Str& derivation_path) {
+                                           rust::Str derivation_path) {
   auto* state = get_state(signer);
   if (!state || !state->wallet) {
     return {};
