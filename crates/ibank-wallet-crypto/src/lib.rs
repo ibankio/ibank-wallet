@@ -1,7 +1,7 @@
 //! Signing interfaces and wallet-core bridge.
 
 use ibank_wallet_chains::EvmUnsignedTx;
-use ibank_wallet_core::{Result, WalletError};
+use ibank_wallet_core::Result;
 
 #[cfg(feature = "wallet-core")]
 pub mod wallet_core;

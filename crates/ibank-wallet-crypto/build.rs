@@ -50,6 +50,11 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", wallet_core_lib.display());
     println!("cargo:rustc-link-lib=static=TrustWalletCore");
 
+    // Link companion wallet-core archives when present (these satisfy symbols like
+    // CURVE25519_NAME / tw_transaction_compiler_* / zil_schnorr_sign).
+    // Different wallet-core build layouts may place these under subdirs such as trezor-crypto/.
+    link_wallet_core_companion_archives(&wallet_core_lib);
+
     // Sanity-check: TrustWalletCore must not reference missing companion archives.
     // If the wallet-core build folder only contains libTrustWalletCore.a + libprotobuf.a,
     // but TrustWalletCore has undefined references to crypto/tx-compiler symbols, the
@@ -70,7 +75,16 @@ fn main() {
         println!("cargo:rustc-link-lib={}=protobuf", protobuf_kind);
     }
 
+    // C++ stdlib (required for wallet-core)
     println!("cargo:rustc-link-lib=c++");
+
+    // Common system libs used by wallet-core on macOS (safe no-ops if unused)
+    if std::env::var("CARGO_CFG_TARGET_OS").ok().as_deref() == Some("macos") {
+        println!("cargo:rustc-link-lib=framework=Security");
+        println!("cargo:rustc-link-lib=framework=Foundation");
+        println!("cargo:rustc-link-lib=z");
+        println!("cargo:rustc-link-lib=bz2");
+    }
 }
 
 fn find_wallet_core_include_dir() -> PathBuf {
@@ -306,7 +320,9 @@ fn ensure_wallet_core_is_self_contained(wallet_core_lib: &Path) {
     // If wallet-core only produced TrustWalletCore + protobuf, but has undefined symbols for
     // these components, the final link will fail. Provide a clear actionable error.
     let protobuf_a = wallet_core_lib.join("libprotobuf.a");
-    let has_only_two_archives = {
+
+    // Count only top-level .a files (legacy behavior) ...
+    let top_level_a_count = {
         let mut count = 0usize;
         if let Ok(entries) = std::fs::read_dir(wallet_core_lib) {
             for e in entries.flatten() {
@@ -315,8 +331,15 @@ fn ensure_wallet_core_is_self_contained(wallet_core_lib: &Path) {
                 }
             }
         }
-        count <= 2 && protobuf_a.is_file()
+        count
     };
+
+    // ...but also consider common subdirs where wallet-core places companion archives.
+    let has_companions_in_subdirs = wallet_core_lib.join("trezor-crypto").join("libTrezorCrypto.a").is_file()
+        || wallet_core_lib.join("walletconsole").join("lib").join("libwalletconsolelib.a").is_file()
+        || wallet_core_lib.join("local").join("lib").join("libwallet_core_rs.a").is_file();
+
+    let has_only_two_archives = top_level_a_count <= 2 && protobuf_a.is_file() && !has_companions_in_subdirs;
 
     if has_only_two_archives {
         panic!(
@@ -337,3 +360,71 @@ To bypass this check temporarily (not recommended), set {SKIP_WALLET_CORE_SANITY
         );
     }
 }
+
+fn link_wallet_core_companion_archives(wallet_core_lib: &Path) {
+    // Add search paths for common wallet-core subdirectories that may contain companion archives.
+    // Keep these deterministic and cheap; don't recurse arbitrarily.
+    let candidates: Vec<PathBuf> = vec![
+        wallet_core_lib.to_path_buf(),
+        wallet_core_lib.join("trezor-crypto"),
+        wallet_core_lib.join("walletconsole").join("lib"),
+        wallet_core_lib.join("local").join("lib"),
+        wallet_core_lib.join("lib"),
+    ];
+
+    for dir in candidates.iter() {
+        if dir.is_dir() {
+            println!("cargo:rustc-link-search=native={}", dir.display());
+        }
+    }
+
+    // Link the key companion archives if present. We use filenames to decide what to link.
+    // Note: `rustc-link-lib=static=<name>` expects lib<name>.a
+    let mut linked = false;
+
+    // trezor-crypto provides curve constants & various crypto primitives
+    if wallet_core_lib.join("trezor-crypto").join("libTrezorCrypto.a").is_file()
+        || wallet_core_lib.join("libTrezorCrypto.a").is_file()
+    {
+        println!("cargo:rustc-link-lib=static=TrezorCrypto");
+        linked = true;
+    }
+
+    // TransactionCompiler symbols may be built into TrustWalletCore, but some builds produce a separate archive.
+    // Link it when it exists to satisfy tw_transaction_compiler_* references.
+    if wallet_core_lib.join("libTransactionCompiler.a").is_file()
+        || wallet_core_lib.join("transaction-compiler").join("libTransactionCompiler.a").is_file()
+        || wallet_core_lib.join("walletconsole").join("lib").join("libTransactionCompiler.a").is_file()
+        || wallet_core_lib.join("local").join("lib").join("libTransactionCompiler.a").is_file()
+    {
+        println!("cargo:rustc-link-lib=static=TransactionCompiler");
+        linked = true;
+    }
+
+    // Some builds generate a consolidated Rust helper archive.
+    if wallet_core_lib.join("local").join("lib").join("libwallet_core_rs.a").is_file()
+        || wallet_core_lib.join("libwallet_core_rs.a").is_file()
+    {
+        println!("cargo:rustc-link-lib=static=wallet_core_rs");
+        linked = true;
+    }
+
+    // walletconsolelib is not required for core signing, but some builds park common objects there.
+    // Link it opportunistically if present (and only then).
+    if wallet_core_lib.join("walletconsole").join("lib").join("libwalletconsolelib.a").is_file()
+        || wallet_core_lib.join("libwalletconsolelib.a").is_file()
+    {
+        println!("cargo:rustc-link-lib=static=walletconsolelib");
+        linked = true;
+    }
+
+    if linked {
+        println!("cargo:warning=Linked wallet-core companion archives (TrezorCrypto / TransactionCompiler / wallet_core_rs / walletconsolelib) when present.");
+    } else {
+        println!(
+            "cargo:warning=No wallet-core companion archives detected under {}. If you see undefined symbols (CURVE25519_NAME / tw_transaction_compiler_* / zil_schnorr_sign), rebuild wallet-core and ensure companion .a files are available.",
+            wallet_core_lib.display()
+        );
+    }
+}
+
